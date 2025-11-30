@@ -1,0 +1,26 @@
+{
+  "cli": {
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "distribution": "internal",
+      "android": {
+        "gradleCommand": ":app:assembleDebug"
+      },
+      "ios": {
+        "buildConfiguration": "Debug",
+        "credentialsSource": "local"
+      }
+    },
+    "preview": {
+      "distribution": "internal"
+    },
+    "production": {
+      "node": "20.19.4"
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

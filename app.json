@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "Cocoinbox",
+    "slug": "cocoinbox-mobile",
+    "version": "1.0.0",
+    "scheme": "cocoinbox",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#09090b"
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 0
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.cocoinbox.app",
+      "buildNumber": "1"
+    },
+    "android": {
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#09090b"
+      },
+      "package": "com.cocoinbox.app"
+    },
+    "web": {
+      "favicon": "./assets/icon.png"
+    },
+    "extra": {
+      "apiUrl": "https://coco-inbox-backend.vercel.app",
+      "frontendUrl": "https://coco-inbox-frontend.vercel.app",
+      "eas": {
+        "projectId": "591c0c28-df7e-4564-aaa2-f1a0a816544a"
+      }
+    }
+  }
+}
