@@ -6,7 +6,8 @@ export interface User {
   id: string;
   email: string;
   name?: string;
-  is_pro?: boolean;
+  roles?: string[]; // includes 'pro' or 'admin'
+  is_pro?: boolean; // legacy boolean
   subscriptionStatus?: string;
   proGraceUntil?: string;
 }

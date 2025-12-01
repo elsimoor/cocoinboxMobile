@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { Alert, FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSms } from '@/hooks/useSms';
+import { useIsPro } from '@/hooks/useIsPro';
 import { Card } from '@/components/Card';
 
 export default function SmsScreen() {
+  const { isPro } = useIsPro();
   const { numbers, messages, loading, error, twilioConfigured, assignNumber, releaseNumber, fetchMessages } = useSms();
   const [expires, setExpires] = useState('60');
   const [selected, setSelected] = useState<string | null>(null);
@@ -20,6 +22,16 @@ export default function SmsScreen() {
     setSelected(num);
     fetchMessages(num);
   };
+
+  if (!isPro) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.title}>Temporary SMS Numbers</Text>
+        <Text style={styles.subtitle}>Receive verification codes and transactional SMS securely.</Text>
+        <Text style={styles.error}>Pro subscription required to manage temporary SMS numbers.</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

@@ -3,11 +3,13 @@ import { Alert, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-
 import { useNavigation } from '@react-navigation/native';
 import { Card } from '@/components/Card';
 import { useAuth } from '@/context/AuthContext';
+import { useIsPro } from '@/hooks/useIsPro';
 import { apiRequest, FRONTEND_BASE_URL } from '@/api/client';
 
 export default function SettingsScreen() {
   const navigation = useNavigation<any>();
   const { user, token, signOut } = useAuth();
+  const { isPro, inGraceAfterDowngrade, proGraceUntil } = useIsPro();
 
   const openWeb = (path: string) => Linking.openURL(`${FRONTEND_BASE_URL}${path}`);
 
@@ -34,34 +36,47 @@ export default function SettingsScreen() {
       <Card>
         <Text style={styles.title}>Account</Text>
         <Text style={styles.helper}>{user?.email}</Text>
-        <Text style={styles.helper}>Plan · {user?.is_pro ? 'Pro' : 'Free'}'}</Text>
+        <Text style={styles.helper}>Plan: {isPro ? 'Pro' : inGraceAfterDowngrade ? 'Grace (expired Pro)' : 'Free'}</Text>
+        {inGraceAfterDowngrade && proGraceUntil && (
+          <Text style={[styles.helper, { color: '#dc2626', marginTop: 6 }]}>Grace ends {proGraceUntil.toLocaleDateString()}</Text>
+        )}
+        {isPro && user?.subscriptionStatus && (
+          <Text style={[styles.helper, { marginTop: 6 }]}>Status: {user.subscriptionStatus}</Text>
+        )}
         <View style={styles.row}>
           <TouchableOpacity style={styles.primaryButton} onPress={() => openWeb('/subscription')}>
-            <Text style={styles.primaryText}>Manage billing</Text>
+            <Text style={styles.primaryText}>{isPro ? 'Manage billing' : 'View plans'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryButton} onPress={signOut}>
             <Text style={styles.secondaryText}>Sign out</Text>
           </TouchableOpacity>
         </View>
+        {!isPro && (
+          <TouchableOpacity style={[styles.primaryButton, { marginTop: 12, backgroundColor: '#1e40af' }]} onPress={() => navigation.navigate('UpgradeWeb')}>
+            <Text style={styles.primaryText}>Upgrade In-App</Text>
+          </TouchableOpacity>
+        )}
       </Card>
 
-      <Card>
-        <Text style={styles.title}>Workspace</Text>
-        <View style={styles.linkRow}>
-          <TouchableOpacity onPress={() => navigation.navigate('Files')}>
-            <Text style={styles.link}>Secure Files</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => navigation.navigate('Notes')}>
-            <Text style={styles.link}>Secure Notes</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => navigation.navigate('Esim')}>
-            <Text style={styles.link}>eSIM</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => navigation.navigate('Data')}>
-            <Text style={styles.link}>Data View</Text>
-          </TouchableOpacity>
-        </View>
-      </Card>
+      {isPro && (
+        <Card>
+          <Text style={styles.title}>Workspace</Text>
+          <View style={styles.linkRow}>
+            <TouchableOpacity onPress={() => navigation.navigate('Files')}>
+              <Text style={styles.link}>Secure Files</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation.navigate('Notes')}>
+              <Text style={styles.link}>Secure Notes</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation.navigate('Esim')}>
+              <Text style={styles.link}>eSIM</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation.navigate('Data')}>
+              <Text style={styles.link}>Data View</Text>
+            </TouchableOpacity>
+          </View>
+        </Card>
+      )}
 
       <Card>
         <Text style={styles.title}>Security</Text>

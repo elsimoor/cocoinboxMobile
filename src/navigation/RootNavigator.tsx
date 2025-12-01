@@ -1,5 +1,5 @@
-import React from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { ActivityIndicator, View, Linking } from 'react-native';
 import { NavigationContainer, DefaultTheme, Theme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -18,6 +18,9 @@ import EsimScreen from '@/screens/EsimScreen';
 import DataScreen from '@/screens/DataScreen';
 import SmsScreen from '@/screens/Sms/SmsScreen';
 import SettingsScreen from '@/screens/SettingsScreen';
+import UpgradeScreen from '@/screens/UpgradeScreen';
+import UpgradeWebViewScreen from '@/screens/UpgradeWebViewScreen';
+import { useIsPro } from '@/hooks/useIsPro';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -38,7 +41,7 @@ const THEME: Theme = {
   },
 };
 
-function AppTabs() {
+function AppTabs({ isPro }: { isPro: boolean }) {
   return (
     <Tab.Navigator
       screenOptions={{
@@ -48,15 +51,34 @@ function AppTabs() {
       }}
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} options={{ tabBarIcon: tabIcon('speedometer-outline') }} />
-      <Tab.Screen name="Emails" component={EmailsScreen} options={{ tabBarIcon: tabIcon('mail-outline') }} />
-      <Tab.Screen name="SMS" component={SmsScreen} options={{ tabBarIcon: tabIcon('chatbubbles-outline') }} />
+      {isPro && (
+        <>
+          <Tab.Screen name="Emails" component={EmailsScreen} options={{ tabBarIcon: tabIcon('mail-outline') }} />
+          <Tab.Screen name="SMS" component={SmsScreen} options={{ tabBarIcon: tabIcon('chatbubbles-outline') }} />
+        </>
+      )}
+      {!isPro && (
+        <Tab.Screen name="Upgrade" component={UpgradeScreen} options={{ tabBarIcon: tabIcon('arrow-up-circle-outline') }} />
+      )}
       <Tab.Screen name="Settings" component={SettingsScreen} options={{ tabBarIcon: tabIcon('settings-outline') }} />
     </Tab.Navigator>
   );
 }
 
 export default function RootNavigator() {
-  const { user, loading } = useAuth();
+  const { user, loading, refreshUser } = useAuth();
+  const { isPro } = useIsPro();
+  const navRef = useRef<any>(null);
+
+  useEffect(() => {
+    const sub = Linking.addEventListener('url', async ({ url }) => {
+      if (url.startsWith('cocoinbox://upgrade-success')) {
+        await refreshUser();
+        navRef.current?.navigate('Dashboard');
+      }
+    });
+    return () => sub.remove();
+  }, [refreshUser]);
 
   if (loading) {
     return (
@@ -67,20 +89,27 @@ export default function RootNavigator() {
   }
 
   return (
-    <NavigationContainer theme={THEME}>
+    <NavigationContainer theme={THEME} ref={navRef}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {user ? (
           <>
-            <Stack.Screen name="AppTabs" component={AppTabs} />
+            <Stack.Screen name="AppTabs" children={() => <AppTabs isPro={isPro} />} />
+            {!isPro && (
+              <Stack.Screen name="UpgradeWeb" component={UpgradeWebViewScreen} options={{ headerShown: true, title: 'Upgrade' }} />
+            )}
             <Stack.Screen
               name="EmailDetail"
               component={EmailDetailScreen}
               options={{ headerShown: true, title: 'Mailbox' }}
             />
-            <Stack.Screen name="Files" component={FilesScreen} options={{ headerShown: true, title: 'Secure Files' }} />
-            <Stack.Screen name="Notes" component={NotesScreen} options={{ headerShown: true, title: 'Secure Notes' }} />
-            <Stack.Screen name="Esim" component={EsimScreen} options={{ headerShown: true, title: 'Travel eSIM' }} />
-            <Stack.Screen name="Data" component={DataScreen} options={{ headerShown: true, title: 'Workspace Data' }} />
+            {isPro && (
+              <>
+                <Stack.Screen name="Files" component={FilesScreen} options={{ headerShown: true, title: 'Secure Files' }} />
+                <Stack.Screen name="Notes" component={NotesScreen} options={{ headerShown: true, title: 'Secure Notes' }} />
+                <Stack.Screen name="Esim" component={EsimScreen} options={{ headerShown: true, title: 'Travel eSIM' }} />
+                <Stack.Screen name="Data" component={DataScreen} options={{ headerShown: true, title: 'Workspace Data' }} />
+              </>
+            )}
           </>
         ) : (
           <>

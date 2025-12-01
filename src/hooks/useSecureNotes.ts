@@ -1,19 +1,21 @@
 import { useCallback, useState } from 'react';
 import { apiRequest } from '@/api/client';
 import { useAuth } from '@/context/AuthContext';
-import { encryptNoteFields, decryptNoteContent, decryptNoteTitle, deriveVaultId } from '@/lib/notes';
+import { encryptNoteFields, decryptNoteContent, decryptNoteTitle, deriveVaultId, NoteAlgo } from '@/lib/notes';
 
 export interface SecureNote {
   id: string;
-  crypto_algo: 'AES-GCM';
+  crypto_algo: NoteAlgo;
   iv: string;
   salt: string;
   encrypted_title: string;
   encrypted_content: string;
   kdf_iterations: number;
+  mac?: string;
   auto_delete_after_read: boolean;
   expires_at?: string;
   created_at: string;
+  title_plain?: string; // added locally after decryption
 }
 
 export const useSecureNotes = () => {
@@ -23,19 +25,38 @@ export const useSecureNotes = () => {
   const [error, setError] = useState<string | null>(null);
 
   const listNotes = useCallback(
-    async (password: string) => {
+    async (password: string, algo: NoteAlgo = 'AES-GCM') => {
       if (!token || !user) return [];
       setError(null);
       try {
         setLoading(true);
-        const vId = await deriveVaultId(user.id, password);
+        const vId = await deriveVaultId(user.id, password, algo);
         const res = await apiRequest<SecureNote[]>('/api/notes/vault-list', {
           method: 'POST',
           token,
-          body: JSON.stringify({ cryptoAlgo: 'AES-GCM', vaultId: vId }),
+          body: JSON.stringify({ cryptoAlgo: algo, vaultId: vId }),
         });
-        setNotes(res);
-        return res;
+        const decorated = await Promise.all(
+          res.map(async (n) => {
+            try {
+              const meta = {
+                encryptedTitle: n.encrypted_title,
+                encryptedContent: n.encrypted_content,
+                iv: n.iv,
+                salt: n.salt,
+                algo: n.crypto_algo as NoteAlgo,
+                kdfIterations: (n as any).kdf_iterations || n.kdf_iterations || 250000,
+                mac: (n as any).mac,
+              };
+              const titlePlain = await decryptNoteTitle(meta as any, n.encrypted_title, password);
+              return { ...n, title_plain: titlePlain } as SecureNote;
+            } catch {
+              return { ...n, title_plain: '[decrypt failed]' } as SecureNote;
+            }
+          })
+        );
+        setNotes(decorated);
+        return decorated;
       } catch (err: any) {
         setError(err.message);
         return [];
@@ -46,13 +67,19 @@ export const useSecureNotes = () => {
     [token, user]
   );
 
-  const createNote = async (title: string, content: string, password: string) => {
+  const createNote = async (
+    title: string,
+    content: string,
+    password: string,
+    algo: NoteAlgo = 'AES-GCM',
+    opts?: { autoDeleteAfterRead?: boolean; expiresInMinutes?: number }
+  ) => {
     if (!token || !user) return;
     setError(null);
     try {
       setLoading(true);
-      const payload = await encryptNoteFields(title, content, password);
-      const vaultId = await deriveVaultId(user.id, password);
+      const payload = await encryptNoteFields(title, content, password, algo);
+      const vaultId = await deriveVaultId(user.id, password, algo);
       await apiRequest('/api/notes/create', {
         method: 'POST',
         token,
@@ -63,11 +90,13 @@ export const useSecureNotes = () => {
           kdfIterations: payload.kdfIterations,
           iv: payload.iv,
           salt: payload.salt,
-          autoDeleteAfterRead: false,
+          mac: payload.mac,
+          autoDeleteAfterRead: !!opts?.autoDeleteAfterRead,
+          expiresInMinutes: opts?.expiresInMinutes,
           vaultId,
         }),
       });
-      await listNotes(password);
+      await listNotes(password, algo);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -94,11 +123,12 @@ export const useSecureNotes = () => {
       encryptedContent: note.encrypted_content,
       iv: note.iv,
       salt: note.salt,
-      algo: 'AES-GCM' as const,
-      kdfIterations: (note as any).kdf_iterations || 200000,
+      algo: note.crypto_algo as NoteAlgo,
+      kdfIterations: (note as any).kdf_iterations || 250000,
+      mac: (note as any).mac,
     };
-    const title = await decryptNoteTitle(meta, note.encrypted_title, password);
-    const content = await decryptNoteContent(meta, note.encrypted_content, password);
+    const title = await decryptNoteTitle(meta as any, note.encrypted_title, password);
+    const content = await decryptNoteContent(meta as any, note.encrypted_content, password);
     return { title, content };
   };
 

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '@/context/AuthContext';
+import { useIsPro } from '@/hooks/useIsPro';
 import { apiRequest } from '@/api/client';
 import { Card } from '@/components/Card';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -35,6 +36,8 @@ export default function DashboardScreen() {
     loadStats();
   }, [token]);
 
+  const { isPro, inGraceAfterDowngrade, proGraceUntil } = useIsPro();
+
   return (
     <ScrollView
       style={styles.container}
@@ -65,24 +68,40 @@ export default function DashboardScreen() {
         </Card>
       </View>
 
-      <View style={styles.quickGrid}>
-        <TouchableOpacity style={styles.quickCard} onPress={() => navigation.navigate('Files')}>
-          <Text style={styles.quickTitle}>Secure Files</Text>
-          <Text style={styles.quickSubtitle}>Manage uploads</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.quickCard} onPress={() => navigation.navigate('Notes')}>
-          <Text style={styles.quickTitle}>Secure Notes</Text>
-          <Text style={styles.quickSubtitle}>Unlock vault</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.quickCard} onPress={() => navigation.navigate('Esim')}>
-          <Text style={styles.quickTitle}>Travel eSIM</Text>
-          <Text style={styles.quickSubtitle}>Buy data</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.quickCard} onPress={() => navigation.navigate('Data')}>
-          <Text style={styles.quickTitle}>Data View</Text>
-          <Text style={styles.quickSubtitle}>Workspace snapshot</Text>
-        </TouchableOpacity>
-      </View>
+      {!isPro && (
+        <Card style={{ backgroundColor: '#fff' }}>
+          <Text style={{ fontSize: 16, fontWeight: '600', color: '#0f172a' }}>Upgrade for full workspace</Text>
+          <Text style={{ color: '#6b7280', marginTop: 6 }}>
+            Files, secure notes, SMS numbers, eSIM travel data and more are available on Pro.
+          </Text>
+          {inGraceAfterDowngrade && proGraceUntil && (
+            <Text style={{ color: '#dc2626', marginTop: 8 }}>
+              Grace period active until {proGraceUntil.toLocaleDateString()}. Upgrade to retain data access.
+            </Text>
+          )}
+        </Card>
+      )}
+
+      {isPro && (
+        <View style={styles.quickGrid}>
+          <TouchableOpacity style={styles.quickCard} onPress={() => navigation.navigate('Files')}>
+            <Text style={styles.quickTitle}>Secure Files</Text>
+            <Text style={styles.quickSubtitle}>Manage uploads</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.quickCard} onPress={() => navigation.navigate('Notes')}>
+            <Text style={styles.quickTitle}>Secure Notes</Text>
+            <Text style={styles.quickSubtitle}>Unlock vault</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.quickCard} onPress={() => navigation.navigate('Esim')}>
+            <Text style={styles.quickTitle}>Travel eSIM</Text>
+            <Text style={styles.quickSubtitle}>Buy data</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.quickCard} onPress={() => navigation.navigate('Data')}>
+            <Text style={styles.quickTitle}>Data View</Text>
+            <Text style={styles.quickSubtitle}>Workspace snapshot</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </ScrollView>
   );
 }

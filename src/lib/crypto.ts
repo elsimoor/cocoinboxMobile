@@ -1,4 +1,4 @@
-import * as Random from 'expo-random';
+import * as Crypto from 'expo-crypto';
 import { pbkdf2 } from '@noble/hashes/pbkdf2.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { utf8ToBytes } from '@noble/hashes/utils.js';
@@ -14,7 +14,7 @@ export interface EncryptionResult {
 }
 
 async function randomBytes(length: number): Promise<Uint8Array> {
-  const bytes = await Random.getRandomBytesAsync(length);
+  const bytes = await Crypto.getRandomBytesAsync(length);
   return Uint8Array.from(bytes);
 }
 

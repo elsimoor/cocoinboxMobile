@@ -3,6 +3,7 @@ import { Alert, FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } 
 import { Card } from '@/components/Card';
 import { apiRequest } from '@/api/client';
 import { useAuth } from '@/context/AuthContext';
+import { useIsPro } from '@/hooks/useIsPro';
 
 interface EsimPlan {
   id: string;
@@ -21,6 +22,7 @@ interface EsimProfile {
 
 export default function EsimScreen() {
   const { token } = useAuth();
+  const { isPro } = useIsPro();
   const [country, setCountry] = useState('FR');
   const [plans, setPlans] = useState<EsimPlan[]>([]);
   const [profiles, setProfiles] = useState<EsimProfile[]>([]);
@@ -70,6 +72,16 @@ export default function EsimScreen() {
     fetchPlans();
     fetchProfiles();
   }, [token, country]);
+
+  if (!isPro) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.title}>Travel eSIM</Text>
+        <Text style={styles.subtitle}>Provision secure data plans in one tap.</Text>
+        <Text style={styles.error}>Pro subscription required to access travel eSIM plans.</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { Alert, FlatList, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSecureFiles } from '@/hooks/useSecureFiles';
+import { useIsPro } from '@/hooks/useIsPro';
 import { Card } from '@/components/Card';
 import { FRONTEND_BASE_URL } from '@/api/client';
 
 export default function FilesScreen() {
+  const { isPro } = useIsPro();
   const { files, selectedFile, loading, error, pickFile, uploadFile, removeFile } = useSecureFiles();
   const [password, setPassword] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
@@ -23,6 +25,16 @@ export default function FilesScreen() {
     setExpiresAt('');
     setMaxDownloads('');
   };
+
+  if (!isPro) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.title}>Secure Files</Text>
+        <Text style={styles.subtitle}>Encrypt and share sensitive attachments.</Text>
+        <Text style={styles.error}>Pro subscription required to use encrypted file vault.</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

@@ -3,6 +3,7 @@ import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native
 import { Card } from '@/components/Card';
 import { apiRequest } from '@/api/client';
 import { useAuth } from '@/context/AuthContext';
+import { useIsPro } from '@/hooks/useIsPro';
 
 interface WorkspaceStats {
   ephemeralEmails: { activeCount: number };
@@ -13,6 +14,7 @@ interface WorkspaceStats {
 
 export default function DataScreen() {
   const { token } = useAuth();
+  const { isPro } = useIsPro();
   const [stats, setStats] = useState<WorkspaceStats | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -30,6 +32,16 @@ export default function DataScreen() {
   useEffect(() => {
     loadStats();
   }, [token]);
+
+  if (!isPro) {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={{ padding: 20 }}>
+        <Text style={styles.title}>Workspace Data</Text>
+        <Text style={styles.subtitle}>Live snapshot of your encrypted assets.</Text>
+        <Text style={{ color: '#dc2626', marginTop: 12 }}>Pro subscription required to view detailed workspace data.</Text>
+      </ScrollView>
+    );
+  }
 
   return (
     <ScrollView
