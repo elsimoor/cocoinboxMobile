@@ -28,11 +28,14 @@ or edit `app.json` while developing.
 - `npm run web` – run in the browser
 
 ### Feature parity
-The mobile app mirrors the web frontend:
-- **Authentication** – register, login, logout with persistent sessions.
-- **Dashboard** – displays Cocoinbox stats.
-- **Ephemeral Emails** – list/create/delete addresses, open inbox with pagination and send emails via Mailchimp.
-- **SMS** – assign or release Twilio numbers, read inbound messages.
-- **Settings** – view profile, sign out.
+The mobile app mirrors the most used features from the web client:
+- **Authentication** — register, login, logout with persistent sessions.
+- **Dashboard** — overview tiles + quick actions.
+- **Ephemeral Emails** — list/create/delete addresses, open inbox with pagination and send emails via Mailchimp.
+- **Secure Files** — pick any document, encrypt client-side (AES‑GCM) and upload with password / expiry limits.
+- **Secure Notes** — unlock vault, create encrypted notes, read & delete entries.
+- **SMS** — assign or release Twilio numbers, read inbound messages.
+- **eSIM & Data View** — browse travel plans, review profiles, view workspace metrics.
+- **Settings** — manage billing, open security links, delete the account.
 
 Backend endpoints are the same as the web client, so no additional APIs are required. Make sure the backend is reachable from your device/emulator (use HTTPS tunnel such as Expo tunnel or ngrok when running locally).

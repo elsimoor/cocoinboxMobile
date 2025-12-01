@@ -1,6 +1,8 @@
 const { getDefaultConfig } = require('@expo/metro-config');
 
-const defaultConfig = getDefaultConfig(__dirname);
-defaultConfig.resolver.assetExts.push('cjs');
+const config = getDefaultConfig(__dirname);
+config.resolver.assetExts.push('cjs');
+// Enable support for package.json "exports" (required by @noble/* ESM)
+config.resolver.unstable_enablePackageExports = true;
 
-module.exports = defaultConfig;
+module.exports = config;

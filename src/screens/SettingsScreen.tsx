@@ -34,7 +34,7 @@ export default function SettingsScreen() {
       <Card>
         <Text style={styles.title}>Account</Text>
         <Text style={styles.helper}>{user?.email}</Text>
-        <Text style={styles.helper}>Plan Â· {user?.is_pro ? 'Pro' : 'Free'}</Text>
+        <Text style={styles.helper}>Plan · {user?.is_pro ? 'Pro' : 'Free'}'}</Text>
         <View style={styles.row}>
           <TouchableOpacity style={styles.primaryButton} onPress={() => openWeb('/subscription')}>
             <Text style={styles.primaryText}>Manage billing</Text>
