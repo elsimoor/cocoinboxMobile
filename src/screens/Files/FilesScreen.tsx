@@ -7,10 +7,11 @@ import { FRONTEND_BASE_URL } from '@/api/client';
 
 export default function FilesScreen() {
   const { isPro } = useIsPro();
-  const { files, selectedFile, loading, error, pickFile, uploadFile, removeFile } = useSecureFiles();
+  const { files, selectedFile, loading, error, encryptProgress, pickFile, uploadFile, removeFile, debugLogs } = useSecureFiles();
   const [password, setPassword] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
   const [maxDownloads, setMaxDownloads] = useState<string>('');
+  const [showLogs, setShowLogs] = useState(false);
 
   const startUpload = async () => {
     if (!password) {
@@ -62,9 +63,27 @@ export default function FilesScreen() {
           keyboardType="numeric"
         />
         <TouchableOpacity style={styles.primary} onPress={startUpload} disabled={!selectedFile || loading}>
-          <Text style={styles.primaryText}>{loading ? 'Encrypting…' : 'Encrypt & Upload'}</Text>
+          <Text style={styles.primaryText}>{loading ? `Encrypting ${Math.round(encryptProgress*100)}%…` : 'Encrypt & Upload'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.primary, { backgroundColor: '#334155', marginTop: 10 }]} onPress={() => setShowLogs(!showLogs)}>
+          <Text style={styles.primaryText}>{showLogs ? 'Hide Debug Logs' : 'Show Debug Logs'}</Text>
         </TouchableOpacity>
       </Card>
+
+      {showLogs && (
+        <Card>
+          <Text style={styles.fileName}>Debug Logs</Text>
+          <View style={{ marginTop: 8 }}>
+            {debugLogs?.length ? (
+              debugLogs.slice(-200).map((line, idx) => (
+                <Text key={idx} style={styles.logItem}>{line}</Text>
+              ))
+            ) : (
+              <Text style={styles.helper}>No logs yet. Perform an upload.</Text>
+            )}
+          </View>
+        </Card>
+      )}
 
       <FlatList
         data={files}
@@ -125,4 +144,5 @@ const styles = StyleSheet.create({
   helper: { color: '#6b7280', marginTop: 4 },
   row: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 },
   link: { color: '#0ea5e9', fontWeight: '600' },
+  logItem: { color: '#374151', fontSize: 12 },
 });

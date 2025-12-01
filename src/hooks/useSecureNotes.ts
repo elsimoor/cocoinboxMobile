@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { apiRequest } from '@/api/client';
+import Constants from 'expo-constants';
 import { useAuth } from '@/context/AuthContext';
 import { encryptNoteFields, decryptNoteContent, decryptNoteTitle, deriveVaultId, NoteAlgo } from '@/lib/notes';
 
@@ -22,22 +23,34 @@ export const useSecureNotes = () => {
   const { token, user } = useAuth();
   const [notes, setNotes] = useState<SecureNote[]>([]);
   const [loading, setLoading] = useState(false);
+  const [decrypting, setDecrypting] = useState(false);
+  const [decryptProgress, setDecryptProgress] = useState<number>(0);
+  const [encryptProgress, setEncryptProgress] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
 
   const listNotes = useCallback(
-    async (password: string, algo: NoteAlgo = 'AES-GCM') => {
+    async (password: string, algo: NoteAlgo = 'AES-GCM', onStage?: (stage: string) => void) => {
       if (!token || !user) return [];
       setError(null);
       try {
         setLoading(true);
+        onStage?.('Deriving vault key…');
         const vId = await deriveVaultId(user.id, password, algo);
+        onStage?.('Fetching notes list…');
         const res = await apiRequest<SecureNote[]>('/api/notes/vault-list', {
           method: 'POST',
           token,
           body: JSON.stringify({ cryptoAlgo: algo, vaultId: vId }),
         });
-        const decorated = await Promise.all(
-          res.map(async (n) => {
+        setNotes(res);
+        const extras = (Constants?.expoConfig?.extra || (Constants as any)?.manifest?.extra) || {};
+        const decryptOnUnlock = !!extras?.decryptTitlesOnUnlock; // default false for Expo Go performance
+        if (decryptOnUnlock && res.length) {
+          onStage?.('Decrypting titles…');
+          setDecrypting(true);
+          setDecryptProgress(0);
+          for (let i = 0; i < res.length; i++) {
+            const n = res[i];
             try {
               const meta = {
                 encryptedTitle: n.encrypted_title,
@@ -45,18 +58,21 @@ export const useSecureNotes = () => {
                 iv: n.iv,
                 salt: n.salt,
                 algo: n.crypto_algo as NoteAlgo,
-                kdfIterations: (n as any).kdf_iterations || n.kdf_iterations || 250000,
+                kdfIterations: (n as any).kdf_iterations || n.kdf_iterations || 30000,
                 mac: (n as any).mac,
               };
               const titlePlain = await decryptNoteTitle(meta as any, n.encrypted_title, password);
-              return { ...n, title_plain: titlePlain } as SecureNote;
+              setNotes(prev => prev.map(p => p.id === n.id ? { ...p, title_plain: titlePlain } : p));
             } catch {
-              return { ...n, title_plain: '[decrypt failed]' } as SecureNote;
+              setNotes(prev => prev.map(p => p.id === n.id ? { ...p, title_plain: '[decrypt failed]' } : p));
             }
-          })
-        );
-        setNotes(decorated);
-        return decorated;
+            if (i % 2 === 0) await new Promise(r => setTimeout(r, 0));
+            setDecryptProgress((i + 1)/res.length);
+          }
+          setDecrypting(false);
+        }
+        onStage?.('Done');
+        return res;
       } catch (err: any) {
         setError(err.message);
         return [];
@@ -78,7 +94,8 @@ export const useSecureNotes = () => {
     setError(null);
     try {
       setLoading(true);
-      const payload = await encryptNoteFields(title, content, password, algo);
+      setEncryptProgress(0);
+      const payload = await encryptNoteFields(title, content, password, algo, undefined, (f)=> setEncryptProgress(f));
       const vaultId = await deriveVaultId(user.id, password, algo);
       await apiRequest('/api/notes/create', {
         method: 'POST',
@@ -132,5 +149,5 @@ export const useSecureNotes = () => {
     return { title, content };
   };
 
-  return { notes, loading, error, listNotes, createNote, deleteNote, readNote };
+  return { notes, loading, error, decrypting, decryptProgress, encryptProgress, listNotes, createNote, deleteNote, readNote };
 };

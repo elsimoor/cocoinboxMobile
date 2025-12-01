@@ -47,6 +47,7 @@ export default function LoginScreen() {
           style={styles.input}
           secureTextEntry
           value={password}
+          keyboardType="default"
           onChangeText={setPassword}
         />
         <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={submitting}>

@@ -1,7 +1,11 @@
 import * as Crypto from 'expo-crypto';
-import { pbkdf2 } from '@noble/hashes/pbkdf2.js';
-import { sha256 } from '@noble/hashes/sha2.js';
-import { utf8ToBytes, bytesToUtf8 } from '@noble/hashes/utils.js';
+import Constants from 'expo-constants';
+import { sha256 } from '@noble/hashes/sha2';
+import { hmac } from '@noble/hashes/hmac';
+import { utf8ToBytes } from '@noble/hashes/utils';
+// Noble ciphers AES-GCM helper may differ; fallback to dynamic import signature
+// Keeping original path with .js for runtime while suppressing TS error via any cast.
+// @ts-ignore
 import { aes256gcm } from '@noble/ciphers/aes.js';
 import { base64ToBytes, bytesToBase64 } from '@/lib/base64';
 import CryptoJS from 'crypto-js';
@@ -23,17 +27,56 @@ async function randomBytes(length: number): Promise<Uint8Array> {
   return Uint8Array.from(bytes);
 }
 
+// Chunked asynchronous PBKDF2 (HMAC-SHA256) with periodic yielding to keep UI responsive
+async function asyncPbkdf2Sha256(password: string | Uint8Array, salt: Uint8Array, iterations: number, dkLen: number, onChunk?: (fraction: number) => void): Promise<Uint8Array> {
+  const pwdBytes = typeof password === 'string' ? utf8ToBytes(password) : password;
+  const hLen = 32; // sha256 output size
+  const l = Math.ceil(dkLen / hLen);
+  const DK = new Uint8Array(l * hLen);
+  const totalOps = l * iterations;
+  const block = new Uint8Array(salt.length + 4);
+  block.set(salt);
+  for (let i = 1; i <= l; i++) {
+    // INT(i) big-endian
+    block[salt.length] = (i >>> 24) & 0xff;
+    block[salt.length + 1] = (i >>> 16) & 0xff;
+    block[salt.length + 2] = (i >>> 8) & 0xff;
+    block[salt.length + 3] = i & 0xff;
+    let U = hmac(sha256, pwdBytes, block);
+    let T = U.slice();
+    // Iterations 2..c
+    for (let c = 2; c <= iterations; c++) {
+      U = hmac(sha256, pwdBytes, U);
+      for (let k = 0; k < hLen; k++) T[k] ^= U[k];
+      if (c % 1000 === 0) {
+        onChunk?.((( (i - 1) * iterations) + c) / totalOps);
+        // Yield to event loop so UI can update
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+    DK.set(T, (i - 1) * hLen);
+    onChunk?.((i * iterations) / totalOps);
+  }
+  return DK.slice(0, dkLen);
+}
+
+// Iterations configurable via app config extras (Expo), with safe low defaults for Expo Go
+const extras = (Constants?.expoConfig?.extra || (Constants as any)?.manifest?.extra) || {};
+const VAULT_KDF_ITERATIONS_DEFAULT = Number(extras?.vaultKdfIter ?? 15000);
+const NOTE_KDF_ITERATIONS_DEFAULT = Number(extras?.noteKdfIter ?? 30000);
+
 export async function encryptNoteFields(
   title: string,
   content: string,
   password: string,
   algo: NoteAlgo = 'AES-GCM',
-  iterations = 250000
+  iterations = NOTE_KDF_ITERATIONS_DEFAULT,
+  onProgress?: (fraction: number) => void
 ): Promise<NotePayload> {
   const salt = await randomBytes(16);
   if (algo === 'AES-GCM') {
     const iv = await randomBytes(12);
-    const key = await pbkdf2(sha256, utf8ToBytes(password), salt, { c: iterations, dkLen: 32 });
+    const key = await asyncPbkdf2Sha256(password, salt, iterations, 32, onProgress);
     const gcm = aes256gcm(key);
     const encTitle = gcm.encrypt(iv, utf8ToBytes(title));
     const encContent = gcm.encrypt(iv, utf8ToBytes(content));
@@ -46,9 +89,8 @@ export async function encryptNoteFields(
       kdfIterations: iterations,
     };
   } else {
-    // AES-CBC-HMAC (encrypt-then-MAC) with shared derived bits (64 bytes)
     const iv = await randomBytes(16);
-    const bits = await pbkdf2(sha256, utf8ToBytes(password), salt, { c: iterations, dkLen: 64 });
+    const bits = await asyncPbkdf2Sha256(password, salt, iterations, 64, onProgress);
     const encKeyBytes = bits.slice(0, 32);
     const macKeyBytes = bits.slice(32, 64);
     const encKeyWA = CryptoJS.lib.WordArray.create(encKeyBytes as any, encKeyBytes.length);
@@ -59,7 +101,6 @@ export async function encryptNoteFields(
     const ctContentParams = CryptoJS.AES.encrypt(contentWA, encKeyWA, { iv: ivWA, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 });
     const ctTitleB64 = ctTitleParams.ciphertext.toString(CryptoJS.enc.Base64);
     const ctContentB64 = ctContentParams.ciphertext.toString(CryptoJS.enc.Base64);
-    // MAC over iv + encryptedContent bytes
     const macDataBytes = new Uint8Array([...iv, ...base64ToBytes(ctContentB64)]);
     const macDataWA = CryptoJS.lib.WordArray.create(macDataBytes as any, macDataBytes.length);
     const macKeyWA = CryptoJS.lib.WordArray.create(macKeyBytes as any, macKeyBytes.length);
@@ -76,16 +117,21 @@ export async function encryptNoteFields(
   }
 }
 
+// Utility decode bytes -> utf8 (TextDecoder supported in RN Hermes)
+function bytesToUtf8(bytes: Uint8Array): string {
+  return new TextDecoder().decode(bytes);
+}
+
 export async function decryptNoteContent(meta: NotePayload, encrypted: string, password: string) {
   const iv = base64ToBytes(meta.iv);
   const salt = base64ToBytes(meta.salt);
   if (meta.algo === 'AES-GCM') {
-    const key = await pbkdf2(sha256, utf8ToBytes(password), salt, { c: meta.kdfIterations, dkLen: 32 });
+    const key = await asyncPbkdf2Sha256(password, salt, meta.kdfIterations, 32);
     const gcm = aes256gcm(key);
     const bytes = gcm.decrypt(iv, base64ToBytes(encrypted));
     return bytesToUtf8(bytes);
   } else {
-    const bits = await pbkdf2(sha256, utf8ToBytes(password), salt, { c: meta.kdfIterations, dkLen: 64 });
+    const bits = await asyncPbkdf2Sha256(password, salt, meta.kdfIterations, 64);
     const encKeyBytes = bits.slice(0, 32);
     const macKeyBytes = bits.slice(32, 64);
     const macKeyWA = CryptoJS.lib.WordArray.create(macKeyBytes as any, macKeyBytes.length);
@@ -105,9 +151,9 @@ export async function decryptNoteContent(meta: NotePayload, encrypted: string, p
   }
 }
 
-export async function deriveVaultId(userId: string, password: string, algo: NoteAlgo = 'AES-GCM', iterations = 120000) {
+export async function deriveVaultId(userId: string, password: string, algo: NoteAlgo = 'AES-GCM', iterations = VAULT_KDF_ITERATIONS_DEFAULT, onProgress?: (fraction: number) => void) {
   const salt = utf8ToBytes(`vault:${userId}:${algo}`);
-  const key = await pbkdf2(sha256, utf8ToBytes(password), salt, { c: iterations, dkLen: 32 });
+  const key = await asyncPbkdf2Sha256(password, salt, iterations, 32, onProgress);
   return bytesToBase64(key);
 }
 
@@ -116,12 +162,12 @@ export async function decryptNoteTitle(meta: NotePayload, encrypted: string, pas
   const iv = base64ToBytes(meta.iv);
   const salt = base64ToBytes(meta.salt);
   if (meta.algo === 'AES-GCM') {
-    const key = await pbkdf2(sha256, utf8ToBytes(password), salt, { c: meta.kdfIterations, dkLen: 32 });
+    const key = await asyncPbkdf2Sha256(password, salt, meta.kdfIterations, 32);
     const gcm = aes256gcm(key);
     const bytes = gcm.decrypt(iv, base64ToBytes(encrypted));
     return bytesToUtf8(bytes);
   } else {
-    const bits = await pbkdf2(sha256, utf8ToBytes(password), salt, { c: meta.kdfIterations, dkLen: 64 });
+    const bits = await asyncPbkdf2Sha256(password, salt, meta.kdfIterations, 64);
     const encKeyBytes = bits.slice(0, 32);
     const encKeyWA = CryptoJS.lib.WordArray.create(encKeyBytes as any, encKeyBytes.length);
     const ivWA = CryptoJS.lib.WordArray.create(iv as any, iv.length);

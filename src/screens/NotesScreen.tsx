@@ -7,28 +7,48 @@ import { NoteAlgo } from '@/lib/notes';
 
 export default function NotesScreen() {
   const { isPro } = useIsPro();
-  const { notes, loading, error, listNotes, createNote, deleteNote, readNote } = useSecureNotes();
+  const { notes, loading, error, decrypting, decryptProgress, encryptProgress, listNotes, createNote, deleteNote, readNote } = useSecureNotes();
   const [vaultPassword, setVaultPassword] = useState('');
   const [unlocked, setUnlocked] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
+  const [showSlowHint, setShowSlowHint] = useState(false);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [viewing, setViewing] = useState<{ title: string; content: string } | null>(null);
   const [algo, setAlgo] = useState<NoteAlgo>('AES-GCM');
   const [autoDelete, setAutoDelete] = useState(false);
   const [expiryMinutes, setExpiryMinutes] = useState<string>('');
+  const [unlockError, setUnlockError] = useState<string | null>(null);
 
-  const unlock = async () => {
+  const unlock = () => {
     if (!vaultPassword || unlocking) return;
+    setUnlockError(null);
     setUnlocking(true);
-    try {
-      await listNotes(vaultPassword, algo);
-      setUnlocked(true);
-    } catch {
-      // keep locked so user can retry
-    } finally {
-      setUnlocking(false);
-    }
+    setProgress('Starting…');
+    setShowSlowHint(false);
+    const slowTimer = setTimeout(() => setShowSlowHint(true), 4000);
+    const hardTimeout = setTimeout(() => {
+      if (unlocking) {
+        setUnlockError('Unlock is taking too long. Please retry.');
+        setUnlocking(false);
+        setProgress(null);
+      }
+    }, 25000);
+    setTimeout(async () => {
+      try {
+        await listNotes(vaultPassword, algo, (stage) => setProgress(stage));
+        setUnlocked(true);
+      } catch (e:any) {
+        setUnlockError(e?.message || 'Failed to unlock');
+      } finally {
+        clearTimeout(slowTimer);
+        clearTimeout(hardTimeout);
+        setUnlocking(false);
+        setProgress(null);
+        setShowSlowHint(false);
+      }
+    }, 60);
   };
 
   const create = async () => {
@@ -98,7 +118,7 @@ export default function NotesScreen() {
             {unlocking ? (
               <View style={styles.buttonRow}>
                 <ActivityIndicator size="small" color="#fff" />
-                <Text style={styles.primaryText}>Unlocking…</Text>
+                <Text style={styles.primaryText}>{progress || 'Unlocking…'}</Text>
               </View>
             ) : (
               <Text style={styles.primaryText}>Unlock vault</Text>
@@ -107,8 +127,19 @@ export default function NotesScreen() {
           {unlocking && (
             <View style={styles.inlineLoading}>
               <ActivityIndicator size="small" color="#0ea5e9" />
-              <Text style={styles.loadingHint}>Deriving keys…</Text>
+              <Text style={styles.loadingHint}>{progress || 'Preparing…'}</Text>
             </View>
+          )}
+          {showSlowHint && unlocking && (
+            <Text style={styles.slowHint}>Still working… heavy key derivation running.</Text>
+          )}
+          {unlockError && !unlocking && (
+            <Text style={styles.error}>{unlockError}</Text>
+          )}
+          {unlocking && (
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => { setUnlocking(false); setProgress(null); setUnlockError('Cancelled'); }}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
           )}
         </Card>
       ) : (
@@ -143,7 +174,7 @@ export default function NotesScreen() {
           {(unlocking || loading) && (
             <View style={styles.inlineLoading}>
               <ActivityIndicator size="small" color="#0ea5e9" />
-              <Text style={styles.loadingHint}>{unlocking ? 'Loading vault…' : 'Processing…'}</Text>
+              <Text style={styles.loadingHint}>{unlocking ? 'Loading vault…' : (encryptProgress ? `Encrypting ${Math.round(encryptProgress*100)}%` : 'Processing…')}</Text>
             </View>
           )}
         </Card>
@@ -173,10 +204,10 @@ export default function NotesScreen() {
               </View>
             </Card>
           )}
-          ListEmptyComponent={loading ? (
+          ListEmptyComponent={(loading || decrypting) ? (
             <View style={styles.emptyWrap}>
               <ActivityIndicator size="small" color="#0ea5e9" />
-              <Text style={styles.loadingHint}>Loading notes…</Text>
+              <Text style={styles.loadingHint}>{decrypting ? `Decrypting titles ${Math.round(decryptProgress*100)}%…` : 'Loading notes…'}</Text>
             </View>
           ) : (
             <Text style={styles.empty}>No notes yet</Text>
@@ -240,4 +271,7 @@ const styles = StyleSheet.create({
   modalContent: { backgroundColor: '#fff', borderRadius: 16, padding: 20, gap: 12 },
   modalTitle: { fontSize: 20, fontWeight: '700', color: '#0f172a' },
   modalBody: { color: '#0f172a' },
+  slowHint: { marginTop: 8, fontSize: 12, color: '#64748b' },
+  cancelBtn: { marginTop: 12, alignSelf: 'flex-start', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#e2e8f0' },
+  cancelText: { color: '#334155', fontSize: 12, fontWeight: '600' },
 });
