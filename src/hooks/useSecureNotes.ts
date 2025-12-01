@@ -1,8 +1,8 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { apiRequest } from '@/api/client';
 import Constants from 'expo-constants';
 import { useAuth } from '@/context/AuthContext';
-import { encryptNoteFields, decryptNoteContent, decryptNoteTitle, deriveVaultId, NoteAlgo } from '@/lib/notes';
+import { encryptNoteFields, decryptNoteContent, decryptNoteTitle, deriveVaultId, NoteAlgo, decryptNoteBoth } from '@/lib/notes';
 
 export interface SecureNote {
   id: string;
@@ -27,6 +27,15 @@ export const useSecureNotes = () => {
   const [decryptProgress, setDecryptProgress] = useState<number>(0);
   const [encryptProgress, setEncryptProgress] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+
+  const log = useCallback((msg: string) => {
+    const ts = new Date().toISOString().split('T')[1]?.replace('Z','');
+    const line = `[${ts}] ${msg}`;
+    // Console for metro debugging and UI log list
+    console.log(line);
+    setDebugLogs(prev => [...prev, line].slice(-500));
+  }, []);
 
   const listNotes = useCallback(
     async (password: string, algo: NoteAlgo = 'AES-GCM', onStage?: (stage: string) => void) => {
@@ -35,18 +44,22 @@ export const useSecureNotes = () => {
       try {
         setLoading(true);
         onStage?.('Deriving vault key…');
+        log(`listNotes: deriving vault id for algo=${algo}`);
         const vId = await deriveVaultId(user.id, password, algo);
+        log('listNotes: derived vault id');
         onStage?.('Fetching notes list…');
         const res = await apiRequest<SecureNote[]>('/api/notes/vault-list', {
           method: 'POST',
           token,
           body: JSON.stringify({ cryptoAlgo: algo, vaultId: vId }),
         });
+        log(`listNotes: fetched ${res.length} notes`);
         setNotes(res);
         const extras = (Constants?.expoConfig?.extra || (Constants as any)?.manifest?.extra) || {};
         const decryptOnUnlock = !!extras?.decryptTitlesOnUnlock; // default false for Expo Go performance
         if (decryptOnUnlock && res.length) {
           onStage?.('Decrypting titles…');
+          log('listNotes: decryptTitlesOnUnlock=true, starting bulk title decrypt');
           setDecrypting(true);
           setDecryptProgress(0);
           for (let i = 0; i < res.length; i++) {
@@ -63,18 +76,25 @@ export const useSecureNotes = () => {
               };
               const titlePlain = await decryptNoteTitle(meta as any, n.encrypted_title, password);
               setNotes(prev => prev.map(p => p.id === n.id ? { ...p, title_plain: titlePlain } : p));
+              if ((i + 1) % 5 === 0 || i === res.length - 1) {
+                log(`listNotes: decrypted titles ${i + 1}/${res.length}`);
+              }
             } catch {
               setNotes(prev => prev.map(p => p.id === n.id ? { ...p, title_plain: '[decrypt failed]' } : p));
+              log(`listNotes: title decrypt failed for note ${n.id}`);
             }
             if (i % 2 === 0) await new Promise(r => setTimeout(r, 0));
             setDecryptProgress((i + 1)/res.length);
           }
           setDecrypting(false);
+          log('listNotes: finished bulk title decrypt');
         }
         onStage?.('Done');
+        log('listNotes: done');
         return res;
       } catch (err: any) {
         setError(err.message);
+        log(`listNotes: error ${err?.message || err}`);
         return [];
       } finally {
         setLoading(false);
@@ -95,8 +115,15 @@ export const useSecureNotes = () => {
     try {
       setLoading(true);
       setEncryptProgress(0);
-      const payload = await encryptNoteFields(title, content, password, algo, undefined, (f)=> setEncryptProgress(f));
+      log(`createNote: encrypting with algo=${algo}`);
+      const payload = await encryptNoteFields(title, content, password, algo, undefined, (f)=> {
+        setEncryptProgress(f);
+        if (f === 0 || f === 1 || (f*100)%10===0) {
+          log(`createNote: encrypt progress ${Math.round(f*100)}%`);
+        }
+      });
       const vaultId = await deriveVaultId(user.id, password, algo);
+      log('createNote: derived vault id, posting to API');
       await apiRequest('/api/notes/create', {
         method: 'POST',
         token,
@@ -113,9 +140,11 @@ export const useSecureNotes = () => {
           vaultId,
         }),
       });
+      log('createNote: created, refreshing list');
       await listNotes(password, algo);
     } catch (err: any) {
       setError(err.message);
+      log(`createNote: error ${err?.message || err}`);
     } finally {
       setLoading(false);
     }
@@ -134,20 +163,37 @@ export const useSecureNotes = () => {
   const readNote = async (id: string, password: string) => {
     if (!token) return null;
     setError(null);
-    const note = await apiRequest<SecureNote>(`/api/notes/${id}`, { token });
-    const meta = {
-      encryptedTitle: note.encrypted_title,
-      encryptedContent: note.encrypted_content,
-      iv: note.iv,
-      salt: note.salt,
-      algo: note.crypto_algo as NoteAlgo,
-      kdfIterations: (note as any).kdf_iterations || 250000,
-      mac: (note as any).mac,
-    };
-    const title = await decryptNoteTitle(meta as any, note.encrypted_title, password);
-    const content = await decryptNoteContent(meta as any, note.encrypted_content, password);
-    return { title, content };
+    try {
+      log(`readNote: fetching ${id}`);
+      const note = await apiRequest<SecureNote>(`/api/notes/${id}`, { token });
+      const meta = {
+        encryptedTitle: note.encrypted_title,
+        encryptedContent: note.encrypted_content,
+        iv: note.iv,
+        salt: note.salt,
+        algo: note.crypto_algo as NoteAlgo,
+        kdfIterations: (note as any).kdf_iterations || note.kdf_iterations || 30000,
+        mac: (note as any).mac,
+      };
+      setDecrypting(true);
+      setDecryptProgress(0);
+      log('readNote: decrypting (single-pass)…');
+      const { title, content } = await decryptNoteBoth(meta as any, password, (f) => {
+        setDecryptProgress(f);
+        if (f === 0 || f === 1 || (f*100)%10===0) {
+          log(`readNote: KDF progress ${Math.round(f*100)}%`);
+        }
+      });
+      log('readNote: decrypt done');
+      return { title, content };
+    } catch (err:any) {
+      setError(err.message);
+      log(`readNote: error ${err?.message || err}`);
+      return null;
+    } finally {
+      setDecrypting(false);
+    }
   };
 
-  return { notes, loading, error, decrypting, decryptProgress, encryptProgress, listNotes, createNote, deleteNote, readNote };
+  return { notes, loading, error, decrypting, decryptProgress, encryptProgress, listNotes, createNote, deleteNote, readNote, debugLogs };
 };

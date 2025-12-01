@@ -3,10 +3,7 @@ import Constants from 'expo-constants';
 import { sha256 } from '@noble/hashes/sha2';
 import { hmac } from '@noble/hashes/hmac';
 import { utf8ToBytes } from '@noble/hashes/utils';
-// Noble ciphers AES-GCM helper may differ; fallback to dynamic import signature
-// Keeping original path with .js for runtime while suppressing TS error via any cast.
-// @ts-ignore
-import { aes256gcm } from '@noble/ciphers/aes.js';
+import { gcm } from '@noble/ciphers/aes';
 import { base64ToBytes, bytesToBase64 } from '@/lib/base64';
 import CryptoJS from 'crypto-js';
 
@@ -76,10 +73,14 @@ export async function encryptNoteFields(
   const salt = await randomBytes(16);
   if (algo === 'AES-GCM') {
     const iv = await randomBytes(12);
-    const key = await asyncPbkdf2Sha256(password, salt, iterations, 32, onProgress);
-    const gcm = aes256gcm(key);
-    const encTitle = gcm.encrypt(iv, utf8ToBytes(title));
-    const encContent = gcm.encrypt(iv, utf8ToBytes(content));
+    // Derive 64 bytes to split into two independent AES keys for title/content
+    const keyBits = await asyncPbkdf2Sha256(password, salt, iterations, 64, onProgress);
+    const keyTitle = keyBits.slice(0, 32);
+    const keyContent = keyBits.slice(32, 64);
+    const cipherTitle = gcm(keyTitle, iv);
+    const cipherContent = gcm(keyContent, iv);
+    const encTitle = cipherTitle.encrypt(utf8ToBytes(title));
+    const encContent = cipherContent.encrypt(utf8ToBytes(content));
     return {
       encryptedTitle: bytesToBase64(encTitle),
       encryptedContent: bytesToBase64(encContent),
@@ -126,9 +127,11 @@ export async function decryptNoteContent(meta: NotePayload, encrypted: string, p
   const iv = base64ToBytes(meta.iv);
   const salt = base64ToBytes(meta.salt);
   if (meta.algo === 'AES-GCM') {
-    const key = await asyncPbkdf2Sha256(password, salt, meta.kdfIterations, 32);
-    const gcm = aes256gcm(key);
-    const bytes = gcm.decrypt(iv, base64ToBytes(encrypted));
+    // Use first half of derived key for title/content depending on caller
+    const keyBits = await asyncPbkdf2Sha256(password, salt, meta.kdfIterations, 64);
+    const key = keyBits.slice(32, 64); // content key second half
+    const cipher = gcm(key, iv);
+    const bytes = cipher.decrypt(base64ToBytes(encrypted));
     return bytesToUtf8(bytes);
   } else {
     const bits = await asyncPbkdf2Sha256(password, salt, meta.kdfIterations, 64);
@@ -162,9 +165,11 @@ export async function decryptNoteTitle(meta: NotePayload, encrypted: string, pas
   const iv = base64ToBytes(meta.iv);
   const salt = base64ToBytes(meta.salt);
   if (meta.algo === 'AES-GCM') {
-    const key = await asyncPbkdf2Sha256(password, salt, meta.kdfIterations, 32);
-    const gcm = aes256gcm(key);
-    const bytes = gcm.decrypt(iv, base64ToBytes(encrypted));
+    // Title uses first half of derived key
+    const keyBits = await asyncPbkdf2Sha256(password, salt, meta.kdfIterations, 64);
+    const key = keyBits.slice(0, 32);
+    const cipher = gcm(key, iv);
+    const bytes = cipher.decrypt(base64ToBytes(encrypted));
     return bytesToUtf8(bytes);
   } else {
     const bits = await asyncPbkdf2Sha256(password, salt, meta.kdfIterations, 64);
@@ -175,5 +180,46 @@ export async function decryptNoteTitle(meta: NotePayload, encrypted: string, pas
     const params = CryptoJS.lib.CipherParams.create({ ciphertext: cipherWA });
     const pt = CryptoJS.AES.decrypt(params, encKeyWA, { iv: ivWA, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 });
     return CryptoJS.enc.Utf8.stringify(pt);
+  }
+}
+
+// Single-pass decrypt for both title and content to avoid double KDF
+export async function decryptNoteBoth(meta: NotePayload, password: string, onProgress?: (fraction: number) => void) {
+  const iv = base64ToBytes(meta.iv);
+  const salt = base64ToBytes(meta.salt);
+  if (meta.algo === 'AES-GCM') {
+    const keyBits = await asyncPbkdf2Sha256(password, salt, meta.kdfIterations, 64, onProgress);
+    const keyTitle = keyBits.slice(0, 32);
+    const keyContent = keyBits.slice(32, 64);
+    const cipherTitle = gcm(keyTitle, iv);
+    const cipherContent = gcm(keyContent, iv);
+    const title = bytesToUtf8(cipherTitle.decrypt(base64ToBytes(meta.encryptedTitle)));
+    const content = bytesToUtf8(cipherContent.decrypt(base64ToBytes(meta.encryptedContent)));
+    return { title, content };
+  } else {
+    const bits = await asyncPbkdf2Sha256(password, salt, meta.kdfIterations, 64, onProgress);
+    const encKeyBytes = bits.slice(0, 32);
+    const macKeyBytes = bits.slice(32, 64);
+    // Verify MAC for content if provided
+    if (meta.mac) {
+      const macDataBytes = new Uint8Array([...iv, ...base64ToBytes(meta.encryptedContent)]);
+      const macDataWA = CryptoJS.lib.WordArray.create(macDataBytes as any, macDataBytes.length);
+      const macKeyWA = CryptoJS.lib.WordArray.create(macKeyBytes as any, macKeyBytes.length);
+      const expected = CryptoJS.HmacSHA256(macDataWA, macKeyWA).toString(CryptoJS.enc.Base64);
+      if (expected !== meta.mac) throw new Error('MAC verification failed');
+    }
+    const encKeyWA = CryptoJS.lib.WordArray.create(encKeyBytes as any, encKeyBytes.length);
+    const ivWA = CryptoJS.lib.WordArray.create(iv as any, iv.length);
+    // Title
+    const titleCipherWA = CryptoJS.enc.Base64.parse(meta.encryptedTitle);
+    const titleParams = CryptoJS.lib.CipherParams.create({ ciphertext: titleCipherWA });
+    const titlePT = CryptoJS.AES.decrypt(titleParams, encKeyWA, { iv: ivWA, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 });
+    const title = CryptoJS.enc.Utf8.stringify(titlePT);
+    // Content
+    const contentCipherWA = CryptoJS.enc.Base64.parse(meta.encryptedContent);
+    const contentParams = CryptoJS.lib.CipherParams.create({ ciphertext: contentCipherWA });
+    const contentPT = CryptoJS.AES.decrypt(contentParams, encKeyWA, { iv: ivWA, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 });
+    const content = CryptoJS.enc.Utf8.stringify(contentPT);
+    return { title, content };
   }
 }

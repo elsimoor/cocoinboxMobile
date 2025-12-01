@@ -7,7 +7,7 @@ import { NoteAlgo } from '@/lib/notes';
 
 export default function NotesScreen() {
   const { isPro } = useIsPro();
-  const { notes, loading, error, decrypting, decryptProgress, encryptProgress, listNotes, createNote, deleteNote, readNote } = useSecureNotes();
+  const { notes, loading, error, decrypting, decryptProgress, encryptProgress, listNotes, createNote, deleteNote, readNote, debugLogs } = useSecureNotes();
   const [vaultPassword, setVaultPassword] = useState('');
   const [unlocked, setUnlocked] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
@@ -20,6 +20,7 @@ export default function NotesScreen() {
   const [autoDelete, setAutoDelete] = useState(false);
   const [expiryMinutes, setExpiryMinutes] = useState<string>('');
   const [unlockError, setUnlockError] = useState<string | null>(null);
+  const [showLogs, setShowLogs] = useState(false);
 
   const unlock = () => {
     if (!vaultPassword || unlocking) return;
@@ -85,6 +86,9 @@ export default function NotesScreen() {
       <Text style={styles.title}>Secure Notes</Text>
       <Text style={styles.subtitle}>Zero-knowledge vault for secrets.</Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
+      <TouchableOpacity style={[styles.primary, { backgroundColor: '#334155', marginVertical: 10 }]} onPress={() => setShowLogs(!showLogs)}>
+        <Text style={styles.primaryText}>{showLogs ? 'Hide Debug Logs' : 'Show Debug Logs'}</Text>
+      </TouchableOpacity>
       <View style={styles.toggleRow}>
         <TouchableOpacity
           style={[styles.toggleAlgo, algo === 'AES-GCM' && styles.toggleAlgoActive]}
@@ -216,6 +220,21 @@ export default function NotesScreen() {
         />
       )}
 
+      {showLogs && (
+        <View style={{ marginTop: 12 }}>
+          <Text style={styles.noteTitle}>Debug Logs</Text>
+          <View style={{ marginTop: 8 }}>
+            {debugLogs?.length ? (
+              debugLogs.slice(-200).map((line, idx) => (
+                <Text key={idx} style={styles.logItem}>{line}</Text>
+              ))
+            ) : (
+              <Text style={styles.helper}>No logs yet. Unlock or create a note.</Text>
+            )}
+          </View>
+        </View>
+      )}
+
       <Modal visible={!!viewing} transparent animationType="slide">
         <View style={styles.modal}>
           <View style={styles.modalContent}>
@@ -236,6 +255,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 26, fontWeight: '700', color: '#0f172a' },
   subtitle: { color: '#6b7280' },
   error: { color: '#dc2626' },
+  helper: { color: '#6b7280', marginTop: 4 },
   input: {
     borderWidth: 1,
     borderColor: '#e4e4e7',
@@ -274,4 +294,5 @@ const styles = StyleSheet.create({
   slowHint: { marginTop: 8, fontSize: 12, color: '#64748b' },
   cancelBtn: { marginTop: 12, alignSelf: 'flex-start', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#e2e8f0' },
   cancelText: { color: '#334155', fontSize: 12, fontWeight: '600' },
+  logItem: { color: '#374151', fontSize: 12 },
 });
