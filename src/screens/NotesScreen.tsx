@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Alert, FlatList, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View, Switch, ActivityIndicator } from 'react-native';
 import { Card } from '@/components/Card';
+import { GradientBackground } from '@/components/GradientBackground';
+import { GradientButton } from '@/components/GradientButton';
 import { useIsPro } from '@/hooks/useIsPro';
 import { useSecureNotes } from '@/hooks/useSecureNotes';
 import { NoteAlgo } from '@/lib/notes';
@@ -88,7 +90,7 @@ export default function NotesScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <GradientBackground style={styles.container}>
       <Text style={styles.title}>Secure Notes</Text>
       <Text style={styles.subtitle}>Zero-knowledge vault for secrets.</Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -131,20 +133,14 @@ export default function NotesScreen() {
             onChangeText={setVaultPassword}
             secureTextEntry
           />
-          <TouchableOpacity
-            style={[styles.primary, (!vaultPassword || unlocking) && { opacity: 0.6 }]}
-            disabled={!vaultPassword || unlocking}
-            onPress={unlock}
-          >
-            {unlocking ? (
-              <View style={styles.buttonRow}>
-                <ActivityIndicator size="small" color="#fff" />
-                <Text style={styles.primaryText}>{progress || 'Unlocking…'}</Text>
-              </View>
-            ) : (
-              <Text style={styles.primaryText}>Unlock vault</Text>
-            )}
-          </TouchableOpacity>
+          {unlocking ? (
+            <View style={[styles.primary, styles.buttonRow, { backgroundColor: '#0ea5e9' }]}>
+              <ActivityIndicator size="small" color="#fff" />
+              <Text style={styles.primaryText}>{progress || 'Unlocking…'}</Text>
+            </View>
+          ) : (
+            <GradientButton title="Unlock vault" onPress={unlock} disabled={!vaultPassword} />
+          )}
           {unlocking && (
             <View style={styles.inlineLoading}>
               <ActivityIndicator size="small" color="#0ea5e9" />
@@ -189,9 +185,7 @@ export default function NotesScreen() {
               />
             </View>
           </View>
-          <TouchableOpacity style={[styles.primary, loading && { opacity: 0.7 }]} disabled={loading} onPress={create}>
-            <Text style={styles.primaryText}>{loading ? 'Saving…' : 'Create note'}</Text>
-          </TouchableOpacity>
+          <GradientButton title={loading ? 'Saving…' : 'Create note'} onPress={create} disabled={loading} />
           {(unlocking || loading) && (
             <View style={styles.inlineLoading}>
               <ActivityIndicator size="small" color="#0ea5e9" />
@@ -273,12 +267,12 @@ export default function NotesScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f4f4f5', padding: 20 },
+  container: { flex: 1, padding: 20 },
   title: { fontSize: 26, fontWeight: '700', color: '#0f172a' },
   subtitle: { color: '#6b7280' },
   error: { color: '#dc2626' },

@@ -3,6 +3,8 @@ import { Alert, FlatList, Share, StyleSheet, Text, TextInput, TouchableOpacity, 
 import { useSecureFiles } from '@/hooks/useSecureFiles';
 import { useIsPro } from '@/hooks/useIsPro';
 import { Card } from '@/components/Card';
+import { GradientBackground } from '@/components/GradientBackground';
+import { GradientButton } from '@/components/GradientButton';
 import { FRONTEND_BASE_URL } from '@/api/client';
 
 export default function FilesScreen() {
@@ -38,7 +40,7 @@ export default function FilesScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <GradientBackground style={styles.container}>
       <Text style={styles.title}>Secure Files</Text>
       <Text style={styles.subtitle}>Encrypt and share sensitive attachments.</Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -62,9 +64,13 @@ export default function FilesScreen() {
           onChangeText={setMaxDownloads}
           keyboardType="numeric"
         />
-        <TouchableOpacity style={styles.primary} onPress={startUpload} disabled={!selectedFile || loading}>
-          <Text style={styles.primaryText}>{loading ? `Encrypting ${Math.round(encryptProgress*100)}%…` : 'Encrypt & Upload'}</Text>
-        </TouchableOpacity>
+        {loading ? (
+          <View style={[styles.primary, { backgroundColor: '#0ea5e9' }]}>
+            <Text style={styles.primaryText}>{`Encrypting ${Math.round(encryptProgress*100)}%…`}</Text>
+          </View>
+        ) : (
+          <GradientButton title={'Encrypt & Upload'} onPress={startUpload} disabled={!selectedFile} />
+        )}
         <TouchableOpacity style={[styles.primary, { backgroundColor: '#334155', marginTop: 10 }]} onPress={() => setShowLogs(!showLogs)}>
           <Text style={styles.primaryText}>{showLogs ? 'Hide Debug Logs' : 'Show Debug Logs'}</Text>
         </TouchableOpacity>
@@ -113,12 +119,12 @@ export default function FilesScreen() {
           </Card>
         )}
       />
-    </View>
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f4f4f5', padding: 20, gap: 16 },
+  container: { flex: 1, padding: 20, gap: 16 },
   title: { fontSize: 26, fontWeight: '700', color: '#0f172a' },
   subtitle: { color: '#6b7280' },
   error: { color: '#dc2626' },
