@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { apiRequest } from '@/api/client';
 import Constants from 'expo-constants';
 import { useAuth } from '@/context/AuthContext';
@@ -28,6 +28,11 @@ export const useSecureNotes = () => {
   const [encryptProgress, setEncryptProgress] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [decryptTitlesOnUnlock, setDecryptTitlesOnUnlock] = useState<boolean>(() => {
+    const extras = (Constants?.expoConfig?.extra || (Constants as any)?.manifest?.extra) || {};
+    return !!extras?.decryptTitlesOnUnlock;
+  });
+  const cancelBulkRef = useRef(false);
 
   const log = useCallback((msg: string) => {
     const ts = new Date().toISOString().split('T')[1]?.replace('Z','');
@@ -55,14 +60,14 @@ export const useSecureNotes = () => {
         });
         log(`listNotes: fetched ${res.length} notes`);
         setNotes(res);
-        const extras = (Constants?.expoConfig?.extra || (Constants as any)?.manifest?.extra) || {};
-        const decryptOnUnlock = !!extras?.decryptTitlesOnUnlock; // default false for Expo Go performance
-        if (decryptOnUnlock && res.length) {
+        if (decryptTitlesOnUnlock && res.length) {
           onStage?.('Decrypting titles…');
           log('listNotes: decryptTitlesOnUnlock=true, starting bulk title decrypt');
           setDecrypting(true);
           setDecryptProgress(0);
+          cancelBulkRef.current = false;
           for (let i = 0; i < res.length; i++) {
+            if (cancelBulkRef.current) { log('listNotes: bulk title decrypt cancelled'); break; }
             const n = res[i];
             try {
               const meta = {
@@ -195,5 +200,7 @@ export const useSecureNotes = () => {
     }
   };
 
-  return { notes, loading, error, decrypting, decryptProgress, encryptProgress, listNotes, createNote, deleteNote, readNote, debugLogs };
+  const cancelTitleDecrypt = () => { cancelBulkRef.current = true; };
+
+  return { notes, loading, error, decrypting, decryptProgress, encryptProgress, listNotes, createNote, deleteNote, readNote, debugLogs, decryptTitlesOnUnlock, setDecryptTitlesOnUnlock, cancelTitleDecrypt };
 };

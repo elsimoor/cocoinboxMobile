@@ -62,6 +62,21 @@ const extras = (Constants?.expoConfig?.extra || (Constants as any)?.manifest?.ex
 const VAULT_KDF_ITERATIONS_DEFAULT = Number(extras?.vaultKdfIter ?? 15000);
 const NOTE_KDF_ITERATIONS_DEFAULT = Number(extras?.noteKdfIter ?? 30000);
 
+// Session cache for derived 64-byte keys per (algo, salt, iterations, password)
+const dkCache = new Map<string, Uint8Array>();
+function cacheKey(password: string, salt: Uint8Array, iterations: number, algo: NoteAlgo) {
+  const pwdHash = bytesToBase64(sha256(utf8ToBytes(password)));
+  return `${algo}|${iterations}|${bytesToBase64(salt)}|${pwdHash}`;
+}
+async function getDerived64(password: string, salt: Uint8Array, iterations: number, algo: NoteAlgo, onProgress?: (f:number)=>void) {
+  const key = cacheKey(password, salt, iterations, algo);
+  const cached = dkCache.get(key);
+  if (cached) return cached;
+  const dk = await asyncPbkdf2Sha256(password, salt, iterations, 64, onProgress);
+  dkCache.set(key, dk);
+  return dk;
+}
+
 export async function encryptNoteFields(
   title: string,
   content: string,
@@ -73,8 +88,8 @@ export async function encryptNoteFields(
   const salt = await randomBytes(16);
   if (algo === 'AES-GCM') {
     const iv = await randomBytes(12);
-    // Derive 64 bytes to split into two independent AES keys for title/content
-    const keyBits = await asyncPbkdf2Sha256(password, salt, iterations, 64, onProgress);
+    // Derive 64 bytes to split into two independent AES keys for title/content (cached)
+    const keyBits = await getDerived64(password, salt, iterations, algo, onProgress);
     const keyTitle = keyBits.slice(0, 32);
     const keyContent = keyBits.slice(32, 64);
     const cipherTitle = gcm(keyTitle, iv);
@@ -91,7 +106,7 @@ export async function encryptNoteFields(
     };
   } else {
     const iv = await randomBytes(16);
-    const bits = await asyncPbkdf2Sha256(password, salt, iterations, 64, onProgress);
+    const bits = await getDerived64(password, salt, iterations, algo, onProgress);
     const encKeyBytes = bits.slice(0, 32);
     const macKeyBytes = bits.slice(32, 64);
     const encKeyWA = CryptoJS.lib.WordArray.create(encKeyBytes as any, encKeyBytes.length);
@@ -127,14 +142,14 @@ export async function decryptNoteContent(meta: NotePayload, encrypted: string, p
   const iv = base64ToBytes(meta.iv);
   const salt = base64ToBytes(meta.salt);
   if (meta.algo === 'AES-GCM') {
-    // Use first half of derived key for title/content depending on caller
-    const keyBits = await asyncPbkdf2Sha256(password, salt, meta.kdfIterations, 64);
+    // Use content half of derived key
+    const keyBits = await getDerived64(password, salt, meta.kdfIterations, meta.algo);
     const key = keyBits.slice(32, 64); // content key second half
     const cipher = gcm(key, iv);
     const bytes = cipher.decrypt(base64ToBytes(encrypted));
     return bytesToUtf8(bytes);
   } else {
-    const bits = await asyncPbkdf2Sha256(password, salt, meta.kdfIterations, 64);
+    const bits = await getDerived64(password, salt, meta.kdfIterations, meta.algo);
     const encKeyBytes = bits.slice(0, 32);
     const macKeyBytes = bits.slice(32, 64);
     const macKeyWA = CryptoJS.lib.WordArray.create(macKeyBytes as any, macKeyBytes.length);
@@ -166,13 +181,13 @@ export async function decryptNoteTitle(meta: NotePayload, encrypted: string, pas
   const salt = base64ToBytes(meta.salt);
   if (meta.algo === 'AES-GCM') {
     // Title uses first half of derived key
-    const keyBits = await asyncPbkdf2Sha256(password, salt, meta.kdfIterations, 64);
+    const keyBits = await getDerived64(password, salt, meta.kdfIterations, meta.algo);
     const key = keyBits.slice(0, 32);
     const cipher = gcm(key, iv);
     const bytes = cipher.decrypt(base64ToBytes(encrypted));
     return bytesToUtf8(bytes);
   } else {
-    const bits = await asyncPbkdf2Sha256(password, salt, meta.kdfIterations, 64);
+    const bits = await getDerived64(password, salt, meta.kdfIterations, meta.algo);
     const encKeyBytes = bits.slice(0, 32);
     const encKeyWA = CryptoJS.lib.WordArray.create(encKeyBytes as any, encKeyBytes.length);
     const ivWA = CryptoJS.lib.WordArray.create(iv as any, iv.length);
@@ -188,7 +203,7 @@ export async function decryptNoteBoth(meta: NotePayload, password: string, onPro
   const iv = base64ToBytes(meta.iv);
   const salt = base64ToBytes(meta.salt);
   if (meta.algo === 'AES-GCM') {
-    const keyBits = await asyncPbkdf2Sha256(password, salt, meta.kdfIterations, 64, onProgress);
+    const keyBits = await getDerived64(password, salt, meta.kdfIterations, meta.algo, onProgress);
     const keyTitle = keyBits.slice(0, 32);
     const keyContent = keyBits.slice(32, 64);
     const cipherTitle = gcm(keyTitle, iv);
@@ -197,7 +212,7 @@ export async function decryptNoteBoth(meta: NotePayload, password: string, onPro
     const content = bytesToUtf8(cipherContent.decrypt(base64ToBytes(meta.encryptedContent)));
     return { title, content };
   } else {
-    const bits = await asyncPbkdf2Sha256(password, salt, meta.kdfIterations, 64, onProgress);
+    const bits = await getDerived64(password, salt, meta.kdfIterations, meta.algo, onProgress);
     const encKeyBytes = bits.slice(0, 32);
     const macKeyBytes = bits.slice(32, 64);
     // Verify MAC for content if provided

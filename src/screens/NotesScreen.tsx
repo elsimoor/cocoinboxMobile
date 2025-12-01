@@ -7,7 +7,7 @@ import { NoteAlgo } from '@/lib/notes';
 
 export default function NotesScreen() {
   const { isPro } = useIsPro();
-  const { notes, loading, error, decrypting, decryptProgress, encryptProgress, listNotes, createNote, deleteNote, readNote, debugLogs } = useSecureNotes();
+  const { notes, loading, error, decrypting, decryptProgress, encryptProgress, listNotes, createNote, deleteNote, readNote, debugLogs, decryptTitlesOnUnlock, setDecryptTitlesOnUnlock, cancelTitleDecrypt } = useSecureNotes();
   const [vaultPassword, setVaultPassword] = useState('');
   const [unlocked, setUnlocked] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
@@ -21,6 +21,7 @@ export default function NotesScreen() {
   const [expiryMinutes, setExpiryMinutes] = useState<string>('');
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [showLogs, setShowLogs] = useState(false);
+  const [readingNote, setReadingNote] = useState(false);
 
   const unlock = () => {
     if (!vaultPassword || unlocking) return;
@@ -67,8 +68,13 @@ export default function NotesScreen() {
 
   const openNote = async (id: string) => {
     if (!vaultPassword) return;
-    const data = await readNote(id, vaultPassword);
-    if (data) setViewing(data);
+    setReadingNote(true);
+    try {
+      const data = await readNote(id, vaultPassword);
+      if (data) setViewing(data);
+    } finally {
+      setReadingNote(false);
+    }
   };
 
   if (!isPro) {
@@ -104,6 +110,17 @@ export default function NotesScreen() {
         >
           <Text style={[styles.toggleAlgoText, algo === 'AES-CBC-HMAC' && styles.toggleAlgoTextActive]}>AES-CBC-HMAC</Text>
         </TouchableOpacity>
+      </View>
+      <View style={styles.rowBetween}>
+        <View style={styles.inlineRow}>
+          <Switch value={decryptTitlesOnUnlock} onValueChange={setDecryptTitlesOnUnlock} />
+          <Text style={[styles.smallLabel, styles.inlineSpacing]}>Decrypt titles on unlock</Text>
+        </View>
+        {decrypting && !readingNote && (
+          <TouchableOpacity onPress={cancelTitleDecrypt}>
+            <Text style={[styles.link, { color: '#dc2626' }]}>Cancel decrypt</Text>
+          </TouchableOpacity>
+        )}
       </View>
       {!unlocked ? (
         <Card>
@@ -219,6 +236,16 @@ export default function NotesScreen() {
           ItemSeparatorComponent={() => <View style={styles.separator} />}
         />
       )}
+
+      {/* Decrypting a single note overlay */}
+      <Modal visible={readingNote} transparent animationType="fade">
+        <View style={styles.modal}>
+          <View style={styles.modalContent}>
+            <ActivityIndicator size="small" color="#0ea5e9" />
+            <Text style={styles.loadingHint}>Decrypting note… {decryptProgress ? `${Math.round(decryptProgress*100)}%` : ''}</Text>
+          </View>
+        </View>
+      </Modal>
 
       {showLogs && (
         <View style={{ marginTop: 12 }}>
