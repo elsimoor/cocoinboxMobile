@@ -142,12 +142,19 @@ export async function decryptNoteContent(meta: NotePayload, encrypted: string, p
   const iv = base64ToBytes(meta.iv);
   const salt = base64ToBytes(meta.salt);
   if (meta.algo === 'AES-GCM') {
-    // Use content half of derived key
+    // Prefer content half; fallback to legacy single-key (first half)
     const keyBits = await getDerived64(password, salt, meta.kdfIterations, meta.algo);
-    const key = keyBits.slice(32, 64); // content key second half
-    const cipher = gcm(key, iv);
-    const bytes = cipher.decrypt(base64ToBytes(encrypted));
-    return bytesToUtf8(bytes);
+    try {
+      const key = keyBits.slice(32, 64);
+      const cipher = gcm(key, iv);
+      const bytes = cipher.decrypt(base64ToBytes(encrypted));
+      return bytesToUtf8(bytes);
+    } catch {
+      const keyLegacy = keyBits.slice(0, 32);
+      const cipherLegacy = gcm(keyLegacy, iv);
+      const bytesLegacy = cipherLegacy.decrypt(base64ToBytes(encrypted));
+      return bytesToUtf8(bytesLegacy);
+    }
   } else {
     const bits = await getDerived64(password, salt, meta.kdfIterations, meta.algo);
     const encKeyBytes = bits.slice(0, 32);
@@ -205,12 +212,19 @@ export async function decryptNoteBoth(meta: NotePayload, password: string, onPro
   if (meta.algo === 'AES-GCM') {
     const keyBits = await getDerived64(password, salt, meta.kdfIterations, meta.algo, onProgress);
     const keyTitle = keyBits.slice(0, 32);
-    const keyContent = keyBits.slice(32, 64);
     const cipherTitle = gcm(keyTitle, iv);
-    const cipherContent = gcm(keyContent, iv);
     const title = bytesToUtf8(cipherTitle.decrypt(base64ToBytes(meta.encryptedTitle)));
-    const content = bytesToUtf8(cipherContent.decrypt(base64ToBytes(meta.encryptedContent)));
-    return { title, content };
+    // Try content key second-half, fallback to first-half for legacy
+    try {
+      const keyContent = keyBits.slice(32, 64);
+      const cipherContent = gcm(keyContent, iv);
+      const content = bytesToUtf8(cipherContent.decrypt(base64ToBytes(meta.encryptedContent)));
+      return { title, content };
+    } catch {
+      const cipherLegacy = gcm(keyTitle, iv);
+      const contentLegacy = bytesToUtf8(cipherLegacy.decrypt(base64ToBytes(meta.encryptedContent)));
+      return { title, content: contentLegacy };
+    }
   } else {
     const bits = await getDerived64(password, salt, meta.kdfIterations, meta.algo, onProgress);
     const encKeyBytes = bits.slice(0, 32);
